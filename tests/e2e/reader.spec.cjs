@@ -145,7 +145,7 @@ test('A pending new bookmark cannot redirect typing into the previous bookmark',
   await expect(page.locator('.save-status')).toContainText('已保存');
   // Simulate a slow disk in the actual main process so the pending state is deterministic.
   await app.evaluate(() => {
-    const disk = require('node:fs/promises');
+    const disk = process.getBuiltinModule('fs/promises');
     const rename = disk.rename;
     disk.rename = async (...args) => {
       if (String(args[1]).endsWith('library.json')) await new Promise(resolve => setTimeout(resolve, 500));
