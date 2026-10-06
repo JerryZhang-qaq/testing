@@ -21,6 +21,12 @@ jobs:
         with:
           node-version: '24'
           cache: npm
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+          key: windows-electron-tools-${{ hashFiles('package-lock.json') }}
       - run: npm ci
       - name: Check release version
         if: startsWith(github.ref, 'refs/tags/v')

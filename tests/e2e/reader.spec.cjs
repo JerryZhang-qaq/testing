@@ -63,6 +63,7 @@ test('EPUB 2/3 series, rendering, independent notes, appearance and restart', as
   await page.getByLabel('书签备注', { exact: true }).fill('第二章里的第一条独立备注。');
   await expect(page.locator('.save-status')).toContainText('已保存');
   await page.getByRole('button', { name: '添加当前位置' }).click();
+  await expect(page.locator('.bookmark-item')).toHaveCount(2);
   await page.getByLabel('书签标题').fill('另一根书签');
   await page.getByLabel('书签备注', { exact: true }).fill('同一位置，也有另一条备注。');
   await expect(page.locator('.save-status')).toContainText('已保存');
@@ -130,4 +131,37 @@ test('Book scripts are disabled and remote content cannot contact the Internet',
   expect(await page.evaluate(() => window.bookScriptRan)).toBeUndefined();
   const frame = page.frameLocator('iframe');
   await expect(frame.locator('img[alt="remote"]')).toHaveJSProperty('naturalWidth', 0);
+});
+
+test('A pending new bookmark cannot redirect typing into the previous bookmark', async () => {
+  const file = path.join(root, 'bookmark-race.epub');
+  await fs.writeFile(file, await fixture({ series: '' }));
+  await importPaths([file]);
+  await page.getByRole('button', { name: '阅读 风与书页' }).click();
+  await expect(page.getByRole('button', { name: '在当前位置添加书签' })).toBeEnabled();
+  await page.getByRole('button', { name: '在当前位置添加书签' }).click();
+  await page.getByLabel('书签标题').fill('原来的书签');
+  await page.getByLabel('书签备注', { exact: true }).fill('保留原来的备注');
+  await expect(page.locator('.save-status')).toContainText('已保存');
+  // Simulate a slow disk in the actual main process so the pending state is deterministic.
+  await app.evaluate(() => {
+    const disk = require('node:fs/promises');
+    const rename = disk.rename;
+    disk.rename = async (...args) => {
+      if (String(args[1]).endsWith('library.json')) await new Promise(resolve => setTimeout(resolve, 500));
+      return rename(...args);
+    };
+  });
+  await page.getByRole('button', { name: '添加当前位置' }).click();
+  await expect(page.getByLabel('书签标题')).toBeDisabled();
+  await expect(page.getByLabel('书签备注', { exact: true })).toBeDisabled();
+  await expect(page.locator('.bookmark-item')).toHaveCount(2);
+  await expect(page.getByLabel('书签标题')).toBeEnabled();
+  await page.getByLabel('书签标题').fill('新的书签');
+  await page.getByLabel('书签备注', { exact: true }).fill('新的独立备注');
+  await expect(page.locator('.save-status')).toContainText('已保存');
+  await page.getByRole('button', { name: /原来的书签/ }).click();
+  await expect(page.getByLabel('书签备注', { exact: true })).toHaveValue('保留原来的备注');
+  const saved = JSON.parse(await fs.readFile(path.join(dataDir, 'library.json'), 'utf8'));
+  expect(saved.books[0].bookmarks.map(bookmark => bookmark.title)).toEqual(['原来的书签', '新的书签']);
 });
