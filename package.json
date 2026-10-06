@@ -13,7 +13,7 @@
     "start": "electron .",
     "test": "node --test tests/library.test.cjs",
     "test:e2e": "npm run build && playwright test",
-    "dist:win": "npm run build && electron-builder --win nsis zip --x64"
+    "dist:win": "npm run build && electron-builder --win nsis zip --x64 --publish never"
   },
   "dependencies": {
     "epubjs": "0.3.93",
