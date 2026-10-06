@@ -19,8 +19,8 @@
 
 ## 已实现
 
-- 批量导入 EPUB，自动读取封面、作者、书名；没有封面时生成文字封面。
-- 自动识别 Calibre / EPUB 3 系列信息；可以手动编辑系列名称及册序，支持小数册序。同系列以堆叠书籍显示，点击展开。
+- 批量导入 EPUB，自动读取封面、作者、书名；没有明确封面时按阅读顺序提取第一张可用图片，无图片时生成文字封面。
+- 自动识别 Calibre / EPUB 3 系列信息；可以手动编辑系列名称及册序，支持小数册序。同系列以堆叠书籍显示，点击展开；支持创建空系列、拖拽加入及自动册序／手动拖拽排序。
 - 按书名、作者和系列搜索，按名称、导入时间或最近阅读排序。
 - EPUB 2（NCX）和 EPUB 3（导航文档）目录、章节跳转、分页阅读、方向键翻页。
 - 保存阅读位置及百分比；字体或窗口变化后使用 EPUB CFI 恢复内容位置。
@@ -61,7 +61,7 @@ npm run dist:win
 
 成品输出到 `release/LanRead-0.2.0-Windows-x64-Setup.exe` 和 `release/LanRead-0.2.0-Windows-x64.zip`，支持选择安装目录和创建桌面快捷方式。两种成品均不需要用户安装 Node.js。
 
-仓库包含 `.github/workflows/windows.yml`：普通提交在 Windows 测试并构建成品；推送匹配 `package.json` 版本的 `v*` 标签后，工作流在验证源码、ZIP 中的实际应用及 EXE 安装后的实际应用均通过后，自动发布到 GitHub Releases，并附带 SHA-256 校验文件。无需手工提供 GitHub Token，发布任务使用 GitHub Actions 自带、仅对本仓库有效的令牌。当前没有配置代码签名，Windows 可能显示未知发布者提示；正式签名发行应配置有效的 Windows 签名证书。
+仓库包含 `.github/workflows/windows.yml`：普通提交在 Windows 测试并构建成品；推送匹配 `package.json` 版本的 `v*` 标签后，工作流在验证源码、从旧版升级的数据保留、ZIP 中的实际应用及 EXE 安装后的实际应用均通过后，自动发布到 GitHub Releases，并附带 SHA-256 校验文件。无需手工提供 GitHub Token，发布任务使用 GitHub Actions 自带、仅对本仓库有效的令牌。当前没有配置代码签名，Windows 可能显示未知发布者提示；正式签名发行应配置有效的 Windows 签名证书。
 
 ## 使用
 

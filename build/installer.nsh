@@ -101,10 +101,7 @@
     ${If} $LanReadUpgradeEnabled == ${BST_CHECKED}
       StrCpy $INSTDIR $LanReadUpgradePath
     ${Else}
-      ${StrContains} $0 "${APP_FILENAME}" $INSTDIR
-      ${If} $0 == ""
-        StrCpy $INSTDIR "$INSTDIR\${APP_FILENAME}"
-      ${EndIf}
+      Call instFilesPre
     ${EndIf}
   FunctionEnd
 !macroend
