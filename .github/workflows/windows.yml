@@ -1,7 +1,9 @@
-name: Windows build
+name: Windows build and release
 
 on:
   push:
+    branches: [main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -18,18 +20,105 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
+      - name: Check release version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          if ($env:RELEASE_TAG -ne "v$version") { throw "Tag does not match package version" }
       - run: npm test
       - run: npm run test:e2e
-      - run: npm run dist:win
+      - name: Build EXE installer and standalone ZIP
+        shell: pwsh
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          npm run dist:win 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP/lanread-build.log"
+          $buildExit = $LASTEXITCODE
+          if ($buildExit -ne 0) {
+            '### Windows packaging failed' >> $env:GITHUB_STEP_SUMMARY
+            '```text' >> $env:GITHUB_STEP_SUMMARY
+            Get-Content "$env:RUNNER_TEMP/lanread-build.log" -Tail 80 >> $env:GITHUB_STEP_SUMMARY
+            '```' >> $env:GITHUB_STEP_SUMMARY
+            exit $buildExit
+          }
+      - name: Extract standalone ZIP
+        shell: pwsh
+        run: |
+          $zip = @(Get-ChildItem release/LanRead-*-Windows-x64.zip)
+          if ($zip.Count -ne 1) { throw "Expected one standalone ZIP" }
+          $unpacked = Join-Path $env:RUNNER_TEMP 'LanRead-zip'
+          Expand-Archive $zip[0].FullName -DestinationPath $unpacked
+          $exe = Join-Path $unpacked '岚读.exe'
+          if (!(Test-Path $exe)) { throw "Standalone executable missing" }
+          "LANREAD_TEST_EXECUTABLE=$exe" >> $env:GITHUB_ENV
+      - name: Test the standalone ZIP application
+        run: npx playwright test
+      - name: Install EXE silently
+        shell: pwsh
+        run: |
+          $installer = @(Get-ChildItem release/*-Setup.exe)
+          if ($installer.Count -ne 1) { throw "Expected one installer" }
+          $installDir = Join-Path $env:RUNNER_TEMP 'LanRead-installed'
+          $process = Start-Process $installer[0].FullName -ArgumentList '/S', "/D=$installDir" -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Installer failed: $($process.ExitCode)" }
+          $exe = Join-Path $installDir '岚读.exe'
+          if (!(Test-Path $exe)) { throw "Installed executable missing" }
+          "LANREAD_TEST_EXECUTABLE=$exe" >> $env:GITHUB_ENV
+      - name: Test the installed application
+        run: npx playwright test
+      - name: Generate checksums and verification summary
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem release/* -File | Where-Object { $_.Extension -in '.exe', '.zip' } | Sort-Object Name
+          if ($files.Count -ne 2) { throw "Expected two release files" }
+          $lines = $files | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name }
+          $lines | Set-Content release/SHA256SUMS.txt -Encoding utf8NoBOM
+          '### Windows distributions verified' >> $env:GITHUB_STEP_SUMMARY
+          '- Data tests and source application tests passed.' >> $env:GITHUB_STEP_SUMMARY
+          '- Standalone ZIP extracted and its real executable passed reader tests.' >> $env:GITHUB_STEP_SUMMARY
+          '- EXE installer completed silently and its installed executable passed reader tests.' >> $env:GITHUB_STEP_SUMMARY
+          '- Both distributions embed Electron; no system Node.js installation is required.' >> $env:GITHUB_STEP_SUMMARY
+          '```text' >> $env:GITHUB_STEP_SUMMARY
+          $lines >> $env:GITHUB_STEP_SUMMARY
+          '```' >> $env:GITHUB_STEP_SUMMARY
       - uses: actions/upload-artifact@v4
         with:
           name: LanRead-Windows-x64
-          path: release/*.exe
+          path: |
+            release/*-Setup.exe
+            release/*-Windows-x64.zip
+            release/SHA256SUMS.txt
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: Windows-test-results
-          path: test-results/
+          name: Windows-diagnostics
+          path: |
+            test-results/
+            ${{ runner.temp }}/lanread-build.log
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: LanRead-Windows-x64
+          path: release-files
+      - name: Verify downloaded artifacts
+        working-directory: release-files
+        run: sha256sum --check SHA256SUMS.txt
+      - name: Publish tested Windows downloads
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft --title "岚读 $RELEASE_TAG" --notes-file build/RELEASE_NOTES.md release-files/*
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false

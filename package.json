@@ -13,7 +13,7 @@
     "start": "electron .",
     "test": "node --test tests/library.test.cjs",
     "test:e2e": "npm run build && playwright test",
-    "dist:win": "npm run build && electron-builder --win nsis --x64"
+    "dist:win": "npm run build && electron-builder --win nsis zip --x64"
   },
   "dependencies": {
     "epubjs": "0.3.93",
@@ -39,13 +39,16 @@
     "directories": { "output": "release" },
     "files": ["dist/**/*", "electron/**/*", "assets/icon.png", "package.json", "LICENSE", "THIRD_PARTY_NOTICES.md"],
     "asar": true,
-    "win": { "target": ["nsis"], "icon": "assets/icon.ico", "artifactName": "LanRead-${version}-Setup.${ext}" },
+    "win": { "target": ["nsis", "zip"], "icon": "assets/icon.ico", "artifactName": "LanRead-${version}-Windows-x64.${ext}" },
     "nsis": {
+      "artifactName": "LanRead-${version}-Windows-x64-Setup.${ext}",
+      "include": "build/installer.nsh",
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "岚读"
+      "shortcutName": "岚读",
+      "installerLanguages": ["zh_CN", "en_US"]
     }
   }
 }

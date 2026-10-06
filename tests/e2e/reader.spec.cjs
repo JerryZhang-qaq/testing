@@ -7,7 +7,8 @@ const { fixture } = require('../fixtures.cjs');
 let app, page, root, dataDir;
 const launch = async () => {
   app = await electron.launch({
-    args: [...(process.env.LANREAD_TEST_NO_SANDBOX === '1' ? ['--no-sandbox'] : []), path.resolve('.')],
+    ...(process.env.LANREAD_TEST_EXECUTABLE ? { executablePath: process.env.LANREAD_TEST_EXECUTABLE } : {}),
+    args: [...(process.env.LANREAD_TEST_NO_SANDBOX === '1' ? ['--no-sandbox'] : []), ...(process.env.LANREAD_TEST_EXECUTABLE ? [] : [path.resolve('.')])],
     env: { ...process.env, LANREAD_DATA_DIR: dataDir, LANREAD_DEV_URL: '' },
   });
   page = await app.firstWindow();

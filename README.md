@@ -6,6 +6,17 @@
 
 [阅读界面与验证记录](docs/VALIDATION.md)
 
+## 普通用户下载与运行
+
+在 [GitHub Releases](https://github.com/JerryZhang-qaq/testing/releases/latest) 下载 Windows 成品，不需要下载源码或安装 Node.js。
+
+- **安装版**：下载 `LanRead-0.1.0-Windows-x64-Setup.exe`，双击并按向导安装。安装器自动检查 64 位 Windows 10 / 11，并说明完整运行环境已内置。
+- **ZIP 免安装版**：下载 `LanRead-0.1.0-Windows-x64.zip` → 全部解压 → 双击 `岚读.exe`。保留整个解压目录，不能只复制 EXE。
+
+两种版本都可离线阅读，都使用 Electron 的本机应用数据目录保存书库和备注；免安装不等于自动将书库放在程序目录。安装器不修改系统 Node.js 或 PATH。GitHub 页面里的 `Source code (zip)` 是开发源码。
+
+`SHA256SUMS.txt` 提供成品下载的校验值。EXE 尚未签名，会显示未知发布者。
+
 ## 已实现
 
 - 批量导入 EPUB，自动读取封面、作者、书名；没有封面时生成文字封面。
@@ -48,9 +59,9 @@ npm run test:e2e
 npm run dist:win
 ```
 
-安装包输出到 `release/LanRead-0.1.0-Setup.exe`，支持选择安装目录和创建桌面快捷方式。安装后的应用不需要用户安装 Node.js。
+成品输出到 `release/LanRead-0.1.0-Windows-x64-Setup.exe` 和 `release/LanRead-0.1.0-Windows-x64.zip`，支持选择安装目录和创建桌面快捷方式。两种成品均不需要用户安装 Node.js。
 
-仓库包含 `.github/workflows/windows.yml`：推送到 GitHub 后可以在 Actions 运行 Windows 构建并下载安装包。工作流只上传构建产物，不创建公开 Release。当前没有配置代码签名，Windows 可能显示未知发布者提示；正式发布时应配置有效的 Windows 签名证书。
+仓库包含 `.github/workflows/windows.yml`：普通提交在 Windows 测试并构建成品；推送匹配 `package.json` 版本的 `v*` 标签后，工作流在验证源码、ZIP 中的实际应用及 EXE 安装后的实际应用均通过后，自动发布到 GitHub Releases，并附带 SHA-256 校验文件。无需手工提供 GitHub Token，发布任务使用 GitHub Actions 自带、仅对本仓库有效的令牌。当前没有配置代码签名，Windows 可能显示未知发布者提示；正式签名发行应配置有效的 Windows 签名证书。
 
 ## 使用
 
