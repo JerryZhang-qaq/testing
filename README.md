@@ -122,4 +122,4 @@ Electron、React、TypeScript、EPUB.js、JSZip、fast-xml-parser、Lucide、Vit
 
 ### 验证状态
 
-云端 Linux 的通过结果只证明对应环境中的运行情况。Windows 工作流已提供，但在 Windows 执行完成前，不代表安装包及实际 Windows 阅读行为已经验证。
+Windows 工作流已验证源码、ZIP 解压后的实际程序及 EXE 安装后的实际程序，均通过 EPUB 阅读、系列书库、独立书签、阅读外观和重启恢复测试。具体结果见 [验证记录](docs/VALIDATION.md)。不同出版商的全部 EPUB、所有 Windows 版本及硬件配置尚未逐一验证。

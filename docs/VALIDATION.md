@@ -1,16 +1,24 @@
 # 第一版验证记录
 
-在云端 Linux、Node.js 24.19.0、Electron 44.5.1 下验证。Electron 界面测试使用虚拟显示，受限容器中仅测试启用 `LANREAD_TEST_NO_SANDBOX=1`。Windows 未在本次云端会话中运行。
+在云端 Linux、Node.js 24.19.0、Electron 44.5.1 下验证；另外通过 GitHub Actions 的实际 Windows runner 验证了源码和两种成品。Linux 界面测试使用虚拟显示，受限容器中仅测试启用 `LANREAD_TEST_NO_SANDBOX=1`。Windows 使用默认沙盒配置。
 
 | 检查 | 结果 |
 | --- | --- |
 | 冻结锁文件安装 `npm ci`，包含 Electron 安装与官方 checksum 校验 | 通过 |
 | `npm run build`（TypeScript、Vite、第三方许可清单） | 通过 |
 | `npm test` | 14 通过，0 失败、跳过或取消 |
-| `npm run test:e2e` | 3 通过，0 失败或跳过 |
+| `npm run test:e2e` | 原始 3 项通过；新增慢速磁盘书签切换回归测试通过 |
 | `npm audit --omit=dev` | 0 已知运行时依赖漏洞 |
 | 全依赖 `npm audit` | 8 个中等等级报告，来自打包工具链的 `sprintf-js` 及其依赖链；未使用强制降级修复 |
-| Windows 安装包构建、安装和实际系统字体 | 未执行；提供 Windows Actions 工作流 |
+| Windows 数据层测试 | 14 项通过 |
+| Windows 源码桌面测试 | 4 项通过 |
+| Windows ZIP 构建、解压、实际程序测试 | 构建和解压通过，4 项实际程序测试通过 |
+| Windows EXE 安装包构建、静默安装、安装后程序测试 | 构建和安装通过，4 项实际程序测试通过 |
+| 发布文件完整性 | 自动生成 SHA-256；发布任务下载后再次校验 |
+
+Windows 验证对应应用代码提交 `3b60bde`，运行记录：[Windows build and release #5](https://github.com/JerryZhang-qaq/testing/actions/runs/37510708907)。后续发布标签工作流会重新构建并验证对应标签的成品，再公开发布。
+
+实际 Windows 安装后测试发现“新增书签等待期间仍可编辑旧书签”的时序问题，现已修复：新增期间暂时禁用旧编辑框，完成后切换到新书签。新增回归测试通过模拟慢速磁盘写入，确认旧书签标题和备注不会被误改。已在源码、ZIP 和安装后的程序上验证。
 
 桌面测试实际执行：
 
