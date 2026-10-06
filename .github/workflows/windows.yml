@@ -52,6 +52,29 @@ jobs:
             '```' >> $env:GITHUB_STEP_SUMMARY
             exit $buildExit
           }
+      - name: Verify upgrade from v0.1.0 preserves all user data
+        shell: pwsh
+        run: |
+          $upgradeDir = Join-Path $env:RUNNER_TEMP 'LanRead-upgrade'
+          $previous = Join-Path $env:RUNNER_TEMP 'LanRead-previous-Setup.exe'
+          $manifestPath = Join-Path $env:RUNNER_TEMP 'LanRead-previous-SHA256SUMS.txt'
+          Invoke-WebRequest 'https://github.com/JerryZhang-qaq/testing/releases/download/v0.1.0/SHA256SUMS.txt' -OutFile $manifestPath
+          $manifest = Get-Content $manifestPath -Raw
+          $expectedHash = (($manifest -split "`n" | Where-Object { $_ -match 'LanRead-0.1.0-Windows-x64-Setup.exe' }) -split '\s+')[0]
+          if ($expectedHash -notmatch '^[a-f0-9]{64}$') { throw 'Old installer checksum missing' }
+          Invoke-WebRequest 'https://github.com/JerryZhang-qaq/testing/releases/download/v0.1.0/LanRead-0.1.0-Windows-x64-Setup.exe' -OutFile $previous
+          if ((Get-FileHash $previous -Algorithm SHA256).Hash.ToLower() -ne $expectedHash) { throw 'Old installer checksum mismatch' }
+          $process = Start-Process $previous -ArgumentList '/S', "/D=$upgradeDir" -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw 'Old installer failed' }
+          $env:LANREAD_UPGRADE_ROOT = Join-Path $env:RUNNER_TEMP 'LanRead-upgrade-data'
+          $env:LANREAD_UPGRADE_EXE = Join-Path $upgradeDir '岚读.exe'
+          node tests/upgrade-check.cjs seed 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP/lanread-upgrade.log"
+          if ($LASTEXITCODE -ne 0) { throw 'Old app seed failed' }
+          $installer = @(Get-ChildItem release/*-Setup.exe)
+          $process = Start-Process $installer[0].FullName -ArgumentList '/S', "/D=$upgradeDir" -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw 'Upgrade installer failed' }
+          node tests/upgrade-check.cjs verify 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP/lanread-upgrade.log" -Append
+          if ($LASTEXITCODE -ne 0) { throw 'Upgrade did not preserve user data' }
       - name: Extract standalone ZIP
         shell: pwsh
         run: |
@@ -107,6 +130,7 @@ jobs:
           path: |
             test-results/
             ${{ runner.temp }}/lanread-build.log
+            ${{ runner.temp }}/lanread-upgrade.log
       - name: Preserve failed build diagnostics for Git-only environments
         if: failure()
         shell: pwsh
@@ -114,6 +138,9 @@ jobs:
           New-Item -ItemType Directory -Force .ci-diagnostics | Out-Null
           if (Test-Path "$env:RUNNER_TEMP/lanread-build.log") {
             Get-Content "$env:RUNNER_TEMP/lanread-build.log" -Tail 100 | Set-Content .ci-diagnostics/windows-build.log -Encoding utf8
+          }
+          if (Test-Path "$env:RUNNER_TEMP/lanread-upgrade.log") {
+            Get-Content "$env:RUNNER_TEMP/lanread-upgrade.log" -Tail 100 | Set-Content .ci-diagnostics/windows-upgrade.log -Encoding utf8
           }
           Get-ChildItem test-results -Recurse -Filter error-context.md -ErrorAction SilentlyContinue | ForEach-Object {
             Copy-Item $_.FullName (Join-Path .ci-diagnostics ($_.Directory.Name + '.md'))

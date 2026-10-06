@@ -28,6 +28,8 @@ function registerIpc() {
     return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
   });
   handle('library:update', (id, patch) => library.updateBook(id, patch));
+  handle('series:create', name => library.createSeries(name));
+  handle('series:save', (name, mode, order) => library.saveSeries(name, mode, order));
   handle('library:delete', id => library.deleteBook(id));
   handle('settings:save', settings => library.saveSettings(settings));
   handle('bookmark:save', (id, bookmark) => library.saveBookmark(id, bookmark));

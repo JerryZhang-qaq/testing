@@ -85,11 +85,53 @@ async function parseEpub(buffer, fileName = '未命名.epub') {
   const coverId = meta.find(m => m['@_name'] === 'cover')?.['@_content'];
   const coverItem = manifest.find(item => String(item['@_properties'] ?? '').split(/\s+/).includes('cover-image')) ??
     manifest.find(item => item['@_id'] === coverId);
+  const base = path.posix.dirname(opfPath);
+  const imageTypes = /^(image\/(jpeg|png|gif|webp|svg\+xml|avif))$/;
+  async function imageCover(name, mime) {
+    const image = zip.file(name);
+    if (!image || !imageTypes.test(mime ?? '') || image._data.uncompressedSize > 8 * 1024 * 1024) return null;
+    return `data:${mime};base64,${await image.async('base64')}`;
+  }
   let cover = null;
-  if (coverItem && /^image\/(jpeg|png|gif|webp|svg\+xml|avif)$/.test(coverItem['@_media-type'] ?? '')) {
-    const image = zip.file(archivePath(path.posix.dirname(opfPath), coverItem['@_href']));
-    if (image && image._data.uncompressedSize <= 8 * 1024 * 1024) {
-      cover = `data:${coverItem['@_media-type']};base64,${await image.async('base64')}`;
+  if (coverItem) {
+    try { cover = await imageCover(archivePath(base, coverItem['@_href']), coverItem['@_media-type']); } catch {}
+  }
+  if (!cover) {
+    // Follow actual reading order, rather than ZIP or manifest order.
+    const orderedParser = new XMLParser({ ignoreAttributes: false, removeNSPrefix: true, preserveOrder: true });
+    function imageRefs(nodes) {
+      const refs = [];
+      for (const node of nodes) {
+        const attrs = node[':@'] ?? {};
+        if ('img' in node || 'image' in node) refs.push(attrs['@_src'] ?? attrs['@_href']);
+        for (const [key, value] of Object.entries(node)) if (key !== ':@' && Array.isArray(value)) refs.push(...imageRefs(value));
+      }
+      return refs.filter(Boolean);
+    }
+    for (const ref of spine) {
+      const chapter = manifest.find(item => item['@_id'] === ref['@_idref']);
+      if (!chapter) continue;
+      try {
+        const chapterPath = archivePath(base, chapter['@_href']);
+        const entry = zip.file(chapterPath);
+        if (!entry || entry._data.uncompressedSize > MAX_XML_SIZE) continue;
+        const xml = await entry.async('string');
+        if (/<!DOCTYPE|<!ENTITY/i.test(xml)) continue;
+        for (const href of imageRefs(orderedParser.parse(xml))) {
+          try {
+            const name = archivePath(path.posix.dirname(chapterPath), href);
+            const item = manifest.find(item => { try { return archivePath(base, item['@_href']) === name; } catch { return false; } });
+            cover = await imageCover(name, item?.['@_media-type'] ?? ({ '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.avif': 'image/avif' })[path.posix.extname(name).toLowerCase()]);
+          } catch {}
+          if (cover) break;
+        }
+      } catch {}
+      if (cover) break;
+    }
+    if (!cover) for (const item of manifest) {
+      if (!imageTypes.test(item['@_media-type'] ?? '')) continue;
+      try { cover = await imageCover(archivePath(base, item['@_href']), item['@_media-type']); } catch {}
+      if (cover) break;
     }
   }
   return {
@@ -98,7 +140,7 @@ async function parseEpub(buffer, fileName = '未命名.epub') {
     language: clip(text(list(metadata.language)[0]), 30),
     series: clip(series, 200),
     seriesIndex: Number.isFinite(Number(sequence)) ? Number(sequence) : 0,
-    cover,
+    cover, originalFileName: clip(fileName, 500),
   };
 }
 
@@ -117,7 +159,7 @@ function normalizeSettings(settings) {
 class Library {
   constructor(root) {
     this.root = root;
-    this.state = { version: 1, books: [], settings: { ...DEFAULT_SETTINGS } };
+    this.state = { version: 1, books: [], series: [], settings: { ...DEFAULT_SETTINGS } };
     this.queue = Promise.resolve();
   }
   async init() {
@@ -129,6 +171,19 @@ class Library {
     } catch (error) {
       if (error.code !== 'ENOENT') throw new Error(`书库无法读取，原数据已保留：${error.message}`);
     }
+    this.state.series = Array.isArray(this.state.series) ? this.state.series : [];
+    for (const book of this.state.books) if (book.series && !this.state.series.some(item => item.name === book.series)) {
+      this.state.series.push({ name: book.series, mode: 'auto', order: [] });
+    }
+    // Upgrade existing imported books too; never replace user data when an EPUB is unavailable.
+    let upgraded = false;
+    for (const book of this.state.books.filter(book => !book.cover)) {
+      try {
+        const metadata = await parseEpub(await this.readBook(book.id));
+        if (metadata.cover) { book.cover = metadata.cover; upgraded = true; }
+      } catch {}
+    }
+    if (upgraded) await this.change(() => {});
     return this;
   }
   snapshot() { return structuredClone(this.state); }
@@ -166,6 +221,7 @@ class Library {
         await this.change(async () => {
           if (this.state.books.some(b => b.id === id)) { result.duplicate++; return; }
           await fs.writeFile(path.join(this.root, 'books', `${id}.epub`), buffer);
+          if (metadata.series) this.ensureSeries(metadata.series);
           this.state.books.push({ id, ...metadata, importedAt: Date.now(), lastReadAt: 0, progress: 0, cfi: '', bookmarks: [] });
           result.added++;
         });
@@ -180,7 +236,15 @@ class Library {
   updateBook(id, patch) {
     return this.change(() => {
       const book = this.book(id);
-      if ('series' in patch) book.series = clip(patch.series, 200).trim();
+      if ('series' in patch) {
+        const previous = book.series;
+        book.series = clip(patch.series, 200).trim();
+        if (previous !== book.series) {
+          const old = this.state.series.find(item => item.name === previous);
+          if (old) old.order = old.order.filter(id => id !== book.id);
+          if (book.series) this.ensureSeries(book.series).order.push(book.id);
+        }
+      }
       if ('seriesIndex' in patch) book.seriesIndex = Math.max(0, Math.min(99999, Number(patch.seriesIndex) || 0));
       if ('cfi' in patch) {
         if (typeof patch.cfi !== 'string' || !patch.cfi.startsWith('epubcfi(') || patch.cfi.length > 4000) fail('阅读位置无效。');
@@ -189,6 +253,31 @@ class Library {
       }
       if ('progress' in patch) book.progress = Math.max(0, Math.min(1, Number(patch.progress) || 0));
       return structuredClone(book);
+    });
+  }
+  ensureSeries(name) {
+    let item = this.state.series.find(item => item.name === name);
+    if (!item) { item = { name, mode: 'auto', order: [] }; this.state.series.push(item); }
+    return item;
+  }
+  createSeries(name) {
+    return this.change(() => {
+      if (typeof name !== 'string' || !name.trim() || name.trim().length > 200) fail('请输入不超过 200 字的系列名称。');
+      this.ensureSeries(name.trim());
+      return this.snapshot();
+    });
+  }
+  saveSeries(name, mode, order) {
+    return this.change(() => {
+      const item = this.state.series.find(item => item.name === name);
+      if (!item || !['auto', 'manual'].includes(mode)) fail('系列或排序模式无效。');
+      const members = this.state.books.filter(book => book.series === name).map(book => book.id);
+      if (mode === 'manual') {
+        if (!Array.isArray(order) || order.length !== members.length || new Set(order).size !== members.length || order.some(id => !members.includes(id))) fail('系列成员已变化，请重新排序。');
+        item.order = [...order];
+      }
+      item.mode = mode;
+      return this.snapshot();
     });
   }
   saveSettings(settings) {
@@ -222,6 +311,7 @@ class Library {
     return this.change(async () => {
       this.book(id);
       // Persist removal before cleaning the file. A failed disk write must retain the book.
+      for (const item of this.state.series) item.order = item.order.filter(bookId => bookId !== id);
       this.state.books = this.state.books.filter(b => b.id !== id);
       return this.snapshot();
     }).then(async state => {

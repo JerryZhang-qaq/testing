@@ -165,3 +165,48 @@ test('A pending new bookmark cannot redirect typing into the previous bookmark',
   const saved = JSON.parse(await fs.readFile(path.join(dataDir, 'library.json'), 'utf8'));
   expect(saved.books[0].bookmarks.map(bookmark => bookmark.title)).toEqual(['原来的书签', '新的书签']);
 });
+
+test('Create empty series, drag books into it, auto sort and persistent manual drag order', async () => {
+  const paths = [];
+  for (const title of ['故事 第十二卷', '故事 第二卷', '故事 第一卷']) {
+    const file = path.join(root, `${title}.epub`);
+    await fs.writeFile(file, await fixture({ title, series: '' }));
+    paths.push(file);
+  }
+  await importPaths(paths);
+  await page.getByRole('button', { name: '新建系列', exact: true }).click();
+  await page.getByLabel('新系列名称').fill('我的故事');
+  await page.getByRole('button', { name: '创建系列', exact: true }).click();
+  const target = () => page.locator('.book-card[data-series="我的故事"]');
+  await expect(target()).toBeVisible();
+  for (const title of ['故事 第十二卷', '故事 第二卷', '故事 第一卷']) {
+    await page.getByRole('button', { name: `阅读 ${title}`, exact: true }).locator('..').dragTo(target());
+    await expect(page.getByRole('button', { name: `阅读 ${title}`, exact: true })).toHaveCount(0);
+  }
+  await page.getByRole('button', { name: '展开系列 我的故事' }).click();
+  const titles = () => page.locator('.book-card h3');
+  await expect(titles()).toHaveText(['故事 第一卷', '故事 第二卷', '故事 第十二卷']);
+  // Editing explicit position must change the visible series order immediately.
+  await page.getByRole('button', { name: '故事 第十二卷的菜单' }).click();
+  await page.getByRole('button', { name: '编辑系列', exact: true }).click();
+  await page.getByLabel('系列内册序').fill('1.5');
+  await page.getByRole('button', { name: '保存系列', exact: true }).click();
+  await expect(titles()).toHaveText(['故事 第一卷', '故事 第十二卷', '故事 第二卷']);
+  await page.getByLabel('系列排序').selectOption('manual');
+  await expect(page.getByRole('button', { name: '前移 故事 第二卷' })).toBeEnabled();
+  await page.getByRole('button', { name: '阅读 故事 第二卷', exact: true }).locator('..').dragTo(
+    page.getByRole('button', { name: '阅读 故事 第一卷', exact: true }).locator('..'), { targetPosition: { x: 10, y: 20 } });
+  await expect(titles()).toHaveText(['故事 第二卷', '故事 第一卷', '故事 第十二卷']);
+  await page.getByLabel('搜索书库').fill('第二卷');
+  await expect(page.locator('.book-card')).toHaveCount(1);
+  await expect(page.locator('.book-card')).toHaveAttribute('draggable', 'false');
+  await page.getByRole('button', { name: '清除搜索' }).click();
+  await page.screenshot({ path: 'test-results/series-drag-order.png' });
+  await app.close();
+  await launch();
+  await page.getByRole('button', { name: '展开系列 我的故事' }).click();
+  await expect(page.getByLabel('系列排序')).toHaveValue('manual');
+  await expect(titles()).toHaveText(['故事 第二卷', '故事 第一卷', '故事 第十二卷']);
+  await page.getByLabel('系列排序').selectOption('auto');
+  await expect(titles()).toHaveText(['故事 第一卷', '故事 第十二卷', '故事 第二卷']);
+});

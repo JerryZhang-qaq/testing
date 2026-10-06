@@ -135,3 +135,58 @@ test('Settings and invalid file IDs are validated', async t => {
   assert.equal(settings.font, 'serif');
   await assert.rejects(library.readBook('../other'), /ID/);
 });
+
+test('Cover fallback follows spine and image appearance, skipping remote and missing references', async () => {
+  const zip = await JSZip.loadAsync(await fixture({ cover: false }));
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a1ioAAAAASUVORK5CYII=', 'base64');
+  zip.file('OEBPS/second.png', Buffer.from('second'));
+  zip.file('OEBPS/first.png', png);
+  let opf = await zip.file('OEBPS/content.opf').async('string');
+  zip.file('OEBPS/content.opf', opf.replace('</manifest>', '<item id="second" href="second.png" media-type="image/png"/><item id="first" href="first.png" media-type="image/png"/></manifest>'));
+  let chapter = await zip.file('OEBPS/chapter1.xhtml').async('string');
+  zip.file('OEBPS/chapter1.xhtml', chapter.replace('<body>', '<body><img src="https://example.com/remote.png"/><img src="missing.png"/><svg xmlns:xlink="http://www.w3.org/1999/xlink"><image xlink:href="first.png"/></svg><img src="second.png"/>'));
+  const parsed = await parseEpub(await zip.generateAsync({ type: 'nodebuffer' }));
+  assert.equal(parsed.cover, `data:image/png;base64,${png.toString('base64')}`);
+});
+
+test('Declared covers take precedence over first illustration', async () => {
+  const zip = await JSZip.loadAsync(await fixture());
+  zip.file('OEBPS/illustration.png', Buffer.from('illustration'));
+  zip.file('OEBPS/chapter1.xhtml', (await zip.file('OEBPS/chapter1.xhtml').async('string')).replace('<body>', '<body><img src="illustration.png"/>'));
+  assert.match((await parseEpub(await zip.generateAsync({ type: 'nodebuffer' }))).cover, /^data:image\/svg\+xml/);
+});
+
+test('Old libraries gain fallback covers without losing bookmarks or original copies', async t => {
+  const { library, file } = await setup(t);
+  const book = (await library.importFiles([file])).state.books[0];
+  await library.saveBookmark(book.id, { cfi, title: '保留', note: '保留备注' });
+  const saved = library.snapshot();
+  saved.books[0].cover = null;
+  delete saved.series;
+  await fs.writeFile(path.join(library.root, 'library.json'), JSON.stringify(saved));
+  const restored = (await new Library(library.root).init()).snapshot();
+  assert.ok(restored.books[0].cover);
+  assert.equal(restored.books[0].bookmarks[0].note, '保留备注');
+  assert.equal(restored.series[0].name, '蓝色故事');
+});
+
+test('Empty series, membership and validated manual orders persist atomically', async t => {
+  const { library, root, file } = await setup(t);
+  const other = path.join(root, 'other.epub');
+  await fs.writeFile(other, await fixture({ title: '第二卷', index: 2 }));
+  const books = (await library.importFiles([file, other])).state.books;
+  await library.createSeries('新书架');
+  await library.updateBook(books[0].id, { series: '新书架' });
+  await library.updateBook(books[1].id, { series: '新书架' });
+  const order = [books[1].id, books[0].id];
+  await library.saveSeries('新书架', 'manual', order);
+  await assert.rejects(library.saveSeries('新书架', 'manual', [books[0].id, books[0].id]), /成员/);
+  let restored = (await new Library(library.root).init()).snapshot();
+  assert.deepEqual(restored.series.find(item => item.name === '新书架').order, order);
+  assert.equal(restored.series.find(item => item.name === '新书架').mode, 'manual');
+  await library.updateBook(books[0].id, { series: '' });
+  await library.saveSeries('新书架', 'auto');
+  restored = library.snapshot();
+  assert.equal(restored.series.find(item => item.name === '新书架').mode, 'auto');
+  assert.deepEqual(restored.series.find(item => item.name === '新书架').order, [books[1].id]);
+});

@@ -4,6 +4,7 @@ export type Bookmark = {
 };
 export type BookRecord = {
   id: string; title: string; author: string; language: string; cover: string | null;
+  originalFileName?: string;
   series: string; seriesIndex: number; importedAt: number; lastReadAt: number;
   progress: number; cfi: string; bookmarks: Bookmark[];
 };
@@ -12,13 +13,16 @@ export type Settings = {
   font: 'original' | 'serif' | 'sans' | 'kai';
   fontSize: number; lineHeight: number; background: string; foreground: string;
 };
-export type LibraryState = { version: number; books: BookRecord[]; settings: Settings };
+export type SeriesRecord = { name: string; mode: 'auto' | 'manual'; order: string[] };
+export type LibraryState = { series: SeriesRecord[]; version: number; books: BookRecord[]; settings: Settings };
 export type BookmarkInput = Omit<Bookmark, 'id' | 'createdAt' | 'updatedAt'> & { id?: string };
 export type LanreadAPI = {
   list(): Promise<LibraryState>;
   importBooks(): Promise<{ state: LibraryState; added: number; duplicate: number; errors: { file: string; message: string }[] }>;
   readBook(id: string): Promise<ArrayBuffer>;
   updateBook(id: string, patch: Partial<Pick<BookRecord, 'series' | 'seriesIndex' | 'cfi' | 'progress'>>): Promise<BookRecord>;
+  createSeries(name: string): Promise<LibraryState>;
+  saveSeries(name: string, mode: 'auto' | 'manual', order?: string[]): Promise<LibraryState>;
   deleteBook(id: string): Promise<LibraryState>;
   saveSettings(settings: Partial<Settings>): Promise<Settings>;
   saveBookmark(id: string, bookmark: BookmarkInput): Promise<BookRecord>;

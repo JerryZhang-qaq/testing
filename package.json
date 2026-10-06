@@ -1,6 +1,6 @@
 {
   "name": "lanread",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "岚读 — 离线 EPUB 阅读器",
   "author": "LanRead contributors",
@@ -11,7 +11,7 @@
     "dev": "node scripts/dev.mjs",
     "build": "tsc --noEmit && vite build && node scripts/notices.mjs",
     "start": "electron .",
-    "test": "node --test tests/library.test.cjs",
+    "test": "node --test tests/*.test.cjs",
     "test:e2e": "npm run build && playwright test",
     "dist:win": "npm run build && electron-builder --win nsis zip --x64 --publish never"
   },
@@ -44,6 +44,7 @@
       "artifactName": "LanRead-${version}-Windows-x64-Setup.${ext}",
       "include": "build/installer.nsh",
       "oneClick": false,
+      "deleteAppDataOnUninstall": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
